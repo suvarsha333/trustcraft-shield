@@ -2,48 +2,60 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Activity as ActivityIcon, CheckCircle2, XCircle, AlertTriangle, Shield } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ActivityLog {
   id: string;
-  timestamp: string;
-  user: string;
+  created_at: string;
+  email: string | null;
   action: string;
-  resource: string;
+  resource: string | null;
   status: "success" | "denied" | "warning";
-  ip: string;
-  device: string;
+  ip_address: string | null;
+  reason: string | null;
 }
 
-const generateMockLog = (id: number): ActivityLog => {
-  const users = ["Alice Johnson", "Bob Smith", "Carol White", "David Lee", "Emma Davis"];
-  const actions = ["Login", "Access Request", "File Upload", "Database Query", "API Call", "Policy Check"];
-  const resources = ["Dashboard", "User Database", "File Storage", "API Gateway", "Admin Panel"];
-  const statuses: ("success" | "denied" | "warning")[] = ["success", "success", "success", "denied", "warning"];
-  const devices = ["MacBook Pro", "iPhone 14", "Windows PC", "Android Tab", "iPad Pro"];
-  
-  return {
-    id: id.toString(),
-    timestamp: new Date(Date.now() - Math.random() * 300000).toISOString(),
-    user: users[Math.floor(Math.random() * users.length)],
-    action: actions[Math.floor(Math.random() * actions.length)],
-    resource: resources[Math.floor(Math.random() * resources.length)],
-    status: statuses[Math.floor(Math.random() * statuses.length)],
-    ip: `192.168.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
-    device: devices[Math.floor(Math.random() * devices.length)],
-  };
-};
-
 export default function Activity() {
-  const [logs, setLogs] = useState<ActivityLog[]>(
-    Array.from({ length: 15 }, (_, i) => generateMockLog(i))
-  );
+  const [logs, setLogs] = useState<ActivityLog[]>([]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setLogs(prev => [generateMockLog(Date.now()), ...prev.slice(0, 49)]);
-    }, 5000);
+    // Fetch initial logs
+    const fetchLogs = async () => {
+      const { data, error } = await supabase
+        .from('activity_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      
+      if (data && !error) {
+        setLogs(data.map(log => ({
+          ...log,
+          status: log.status as "success" | "denied" | "warning"
+        })));
+      }
+    };
 
-    return () => clearInterval(interval);
+    fetchLogs();
+
+    // Subscribe to real-time updates
+    const channel = supabase
+      .channel('activity_logs_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'activity_logs'
+        },
+        (payload) => {
+          setLogs(prev => [payload.new as ActivityLog, ...prev.slice(0, 49)]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const getStatusIcon = (status: string) => {
@@ -77,7 +89,8 @@ export default function Activity() {
     
     if (diff < 60) return `${diff}s ago`;
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    return date.toLocaleTimeString();
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return date.toLocaleString();
   };
 
   const stats = {
@@ -167,28 +180,29 @@ export default function Activity() {
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <p className="font-medium text-foreground">{log.user}</p>
+                      <p className="font-medium text-foreground">{log.email || 'Unknown User'}</p>
                       <span className="text-muted-foreground">•</span>
                       <p className="text-sm text-muted-foreground">{log.action}</p>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      Resource: <span className="text-foreground">{log.resource}</span>
+                      Device: <span className="text-foreground">{log.resource || 'Unknown'}</span>
                     </p>
+                    {log.reason && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Reason: <span className="text-foreground">{log.reason}</span>
+                      </p>
+                    )}
                   </div>
                 </div>
 
                 <div className="flex items-center gap-6">
                   <div className="text-right">
-                    <p className="text-xs text-muted-foreground mb-1">Device</p>
-                    <p className="text-sm text-foreground">{log.device}</p>
-                  </div>
-                  <div className="text-right">
                     <p className="text-xs text-muted-foreground mb-1">IP Address</p>
-                    <p className="text-sm font-mono text-foreground">{log.ip}</p>
+                    <p className="text-sm font-mono text-foreground">{log.ip_address || 'N/A'}</p>
                   </div>
                   <div className="text-right min-w-[80px]">
                     <p className="text-xs text-muted-foreground mb-1">Time</p>
-                    <p className="text-sm text-foreground">{formatTime(log.timestamp)}</p>
+                    <p className="text-sm text-foreground">{formatTime(log.created_at)}</p>
                   </div>
                   {getStatusBadge(log.status)}
                 </div>

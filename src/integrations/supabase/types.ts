@@ -14,13 +14,61 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      activity_logs: {
+        Row: {
+          action: string
+          created_at: string | null
+          email: string | null
+          id: string
+          ip_address: string | null
+          metadata: Json | null
+          reason: string | null
+          resource: string | null
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          reason?: string | null
+          resource?: string | null
+          status: string
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          reason?: string | null
+          resource?: string | null
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      log_auth_attempt: {
+        Args: {
+          p_action: string
+          p_device: string
+          p_email: string
+          p_ip_address: string
+          p_reason: string
+          p_status: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never
