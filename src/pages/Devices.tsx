@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,53 +6,97 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Smartphone, Monitor, Tablet, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { Smartphone, Monitor, Tablet, CheckCircle2, AlertTriangle, XCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { formatDistanceToNow } from "date-fns";
 
 interface Device {
   id: string;
+  user_id: string;
   name: string;
-  type: "mobile" | "desktop" | "tablet";
-  owner: string;
-  os: string;
-  status: "compliant" | "warning" | "non-compliant";
-  lastSeen: string;
-  location: string;
+  type: string;
+  os: string | null;
+  status: string | null;
+  last_seen: string | null;
+  location: string | null;
+  created_at: string | null;
 }
 
-const initialDevices: Device[] = [
-  { id: "1", name: "MacBook Pro", type: "desktop", owner: "Alice Johnson", os: "macOS 14.2", status: "compliant", lastSeen: "2 min ago", location: "New York, US" },
-  { id: "2", name: "iPhone 14 Pro", type: "mobile", owner: "Bob Smith", os: "iOS 17.2", status: "warning", lastSeen: "1 hour ago", location: "San Francisco, US" },
-  { id: "3", name: "Windows PC", type: "desktop", owner: "Carol White", os: "Windows 11", status: "compliant", lastSeen: "30 min ago", location: "London, UK" },
-  { id: "4", name: "Android Tab", type: "tablet", owner: "David Lee", os: "Android 13", status: "non-compliant", lastSeen: "2 days ago", location: "Singapore" },
-];
-
 export default function Devices() {
-  const [devices, setDevices] = useState<Device[]>(initialDevices);
+  const { user } = useAuth();
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: "", type: "mobile", owner: "", os: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const [formData, setFormData] = useState({ name: "", type: "mobile", os: "", location: "" });
 
-  const handleAddDevice = () => {
-    if (!formData.name || !formData.owner || !formData.os) {
-      toast.error("Please fill in all fields");
+  useEffect(() => {
+    fetchDevices();
+
+    // Subscribe to realtime changes
+    const channel = supabase
+      .channel('devices-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'devices' },
+        () => fetchDevices()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const fetchDevices = async () => {
+    const { data, error } = await supabase
+      .from('devices')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching devices:', error);
+    } else {
+      setDevices(data || []);
+    }
+    setLoading(false);
+  };
+
+  const handleAddDevice = async () => {
+    if (!formData.name || !formData.os) {
+      toast.error("Please fill in device name and OS");
       return;
     }
 
-    const newDevice: Device = {
-      id: (devices.length + 1).toString(),
-      name: formData.name,
-      type: formData.type as "mobile" | "desktop" | "tablet",
-      owner: formData.owner,
-      os: formData.os,
-      status: "compliant",
-      lastSeen: "Just now",
-      location: "Unknown",
-    };
+    if (!user) {
+      toast.error("You must be logged in to register a device");
+      return;
+    }
 
-    setDevices([...devices, newDevice]);
-    setFormData({ name: "", type: "mobile", owner: "", os: "" });
-    setOpen(false);
-    toast.success("Device registered successfully");
+    setSubmitting(true);
+
+    const { error } = await supabase
+      .from('devices')
+      .insert({
+        user_id: user.id,
+        name: formData.name,
+        type: formData.type,
+        os: formData.os,
+        location: formData.location || null,
+        status: 'compliant',
+      });
+
+    if (error) {
+      console.error('Error adding device:', error);
+      toast.error("Failed to register device");
+    } else {
+      setFormData({ name: "", type: "mobile", os: "", location: "" });
+      setOpen(false);
+      toast.success("Device registered successfully");
+    }
+    setSubmitting(false);
   };
 
   const getDeviceIcon = (type: string) => {
@@ -64,7 +108,7 @@ export default function Devices() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string | null) => {
     switch (status) {
       case "compliant":
         return (
@@ -87,6 +131,17 @@ export default function Devices() {
             Non-Compliant
           </Badge>
         );
+      default:
+        return <Badge variant="secondary">Unknown</Badge>;
+    }
+  };
+
+  const formatLastSeen = (lastSeen: string | null) => {
+    if (!lastSeen) return "Never";
+    try {
+      return formatDistanceToNow(new Date(lastSeen), { addSuffix: true });
+    } catch {
+      return "Unknown";
     }
   };
 
@@ -95,6 +150,14 @@ export default function Devices() {
     warning: devices.filter(d => d.status === "warning").length,
     nonCompliant: devices.filter(d => d.status === "non-compliant").length,
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -140,16 +203,6 @@ export default function Devices() {
                 </Select>
               </div>
               <div>
-                <Label htmlFor="owner">Owner</Label>
-                <Input
-                  id="owner"
-                  value={formData.owner}
-                  onChange={(e) => setFormData({ ...formData, owner: e.target.value })}
-                  placeholder="Enter owner name"
-                  className="bg-background border-border"
-                />
-              </div>
-              <div>
                 <Label htmlFor="os">Operating System</Label>
                 <Input
                   id="os"
@@ -159,7 +212,22 @@ export default function Devices() {
                   className="bg-background border-border"
                 />
               </div>
-              <Button onClick={handleAddDevice} className="w-full bg-gradient-to-r from-primary to-blue-500">
+              <div>
+                <Label htmlFor="location">Location (optional)</Label>
+                <Input
+                  id="location"
+                  value={formData.location}
+                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                  placeholder="e.g., New York, US"
+                  className="bg-background border-border"
+                />
+              </div>
+              <Button 
+                onClick={handleAddDevice} 
+                className="w-full bg-gradient-to-r from-primary to-blue-500"
+                disabled={submitting}
+              >
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Register Device
               </Button>
             </div>
@@ -208,42 +276,42 @@ export default function Devices() {
           <CardTitle>All Devices ({devices.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {devices.map((device) => (
-              <div
-                key={device.id}
-                className="flex items-center justify-between p-4 bg-background rounded-lg border border-border hover:border-primary/50 transition-all"
-              >
-                <div className="flex items-center gap-4 flex-1">
-                  <div className="p-3 rounded-lg bg-gradient-to-br from-primary/10 to-blue-500/10 text-primary">
-                    {getDeviceIcon(device.type)}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="font-medium text-foreground">{device.name}</p>
-                      {getStatusBadge(device.status)}
+          {devices.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">No devices registered yet. Register a device to see it appear here.</p>
+          ) : (
+            <div className="space-y-3">
+              {devices.map((device) => (
+                <div
+                  key={device.id}
+                  className="flex items-center justify-between p-4 bg-background rounded-lg border border-border hover:border-primary/50 transition-all"
+                >
+                  <div className="flex items-center gap-4 flex-1">
+                    <div className="p-3 rounded-lg bg-gradient-to-br from-primary/10 to-blue-500/10 text-primary">
+                      {getDeviceIcon(device.type)}
                     </div>
-                    <p className="text-sm text-muted-foreground">{device.os}</p>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="font-medium text-foreground">{device.name}</p>
+                        {getStatusBadge(device.status)}
+                      </div>
+                      <p className="text-sm text-muted-foreground">{device.os || "Unknown OS"}</p>
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex items-center gap-8">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Owner</p>
-                    <p className="text-sm font-medium text-foreground">{device.owner}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Location</p>
-                    <p className="text-sm text-foreground">{device.location}</p>
-                  </div>
-                  <div className="text-right min-w-[100px]">
-                    <p className="text-xs text-muted-foreground mb-1">Last Seen</p>
-                    <p className="text-sm text-foreground">{device.lastSeen}</p>
+                  <div className="flex items-center gap-8">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Location</p>
+                      <p className="text-sm text-foreground">{device.location || "Unknown"}</p>
+                    </div>
+                    <div className="text-right min-w-[100px]">
+                      <p className="text-xs text-muted-foreground mb-1">Last Seen</p>
+                      <p className="text-sm text-foreground">{formatLastSeen(device.last_seen)}</p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

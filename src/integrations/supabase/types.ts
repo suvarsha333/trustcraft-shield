@@ -53,6 +53,84 @@ export type Database = {
         }
         Relationships: []
       }
+      devices: {
+        Row: {
+          created_at: string | null
+          id: string
+          last_seen: string | null
+          location: string | null
+          name: string
+          os: string | null
+          status: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          last_seen?: string | null
+          location?: string | null
+          name: string
+          os?: string | null
+          status?: string | null
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          last_seen?: string | null
+          location?: string | null
+          name?: string
+          os?: string | null
+          status?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string | null
+          devices: number | null
+          email: string | null
+          id: string
+          last_login: string | null
+          name: string | null
+          role: string | null
+          status: string | null
+          trust_score: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          devices?: number | null
+          email?: string | null
+          id?: string
+          last_login?: string | null
+          name?: string | null
+          role?: string | null
+          status?: string | null
+          trust_score?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          devices?: number | null
+          email?: string | null
+          id?: string
+          last_login?: string | null
+          name?: string | null
+          role?: string | null
+          status?: string | null
+          trust_score?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
